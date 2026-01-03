@@ -1,0 +1,170 @@
+# Implementation Plan
+
+- [x] 1. Set up Xcode project and core structure
+  - Create new macOS App project in Xcode with SwiftUI
+  - Configure minimum deployment target to macOS 13.0
+  - Set up project structure with folders for Models, ViewModels, Views, Services, and Tests
+  - Add swift-check package dependency for property-based testing
+  - _Requirements: All_
+
+- [x] 2. Implement core data models
+  - [x] 2.1 Create SlideshowConfiguration model with Codable conformance
+    - Define struct with transitionDuration, transitionEffect, and lastSelectedFolderPath properties
+    - Implement TransitionEffect enum with fade, slide, and none cases
+    - _Requirements: 2.1, 2.3, 3.1, 3.3, 6.1_
+  - [x] 2.2 Create ImageItem model
+    - Define struct with id, url, and filename properties
+    - Conform to Identifiable protocol
+    - _Requirements: 1.2, 1.4_
+  - [x] 2.3 Create SlideshowState enum
+    - Define cases for idle, playing, and paused states
+    - _Requirements: 4.1, 4.2_
+
+- [x] 3. Implement ConfigurationService
+  - [x] 3.1 Create ConfigurationService protocol and implementation
+    - Implement saveConfiguration method using UserDefaults
+    - Implement loadConfiguration method with default fallback values
+    - Define default values: transitionDuration=5.0, transitionEffect=fade
+    - _Requirements: 6.1, 6.2, 6.3, 2.3, 3.3_
+  - [x] 3.2 Write property test for configuration persistence
+    - **Property 8: Configuration persistence round-trip**
+    - **Validates: Requirements 6.1, 6.2**
+  - [x] 3.3 Write unit tests for ConfigurationService
+    - Test default values when no saved configuration exists
+    - Test error handling for disk write failures
+    - _Requirements: 6.3, 7.4_
+
+- [x] 4. Implement ImageLoaderService
+  - [x] 4.1 Create ImageLoaderService protocol and implementation
+    - Implement loadImagesFromFolder method to scan directory
+    - Filter files by supported extensions (jpg, jpeg, png, gif, heic, tiff, bmp)
+    - Sort results alphabetically by filename
+    - Return array of ImageItem objects
+    - _Requirements: 1.2, 1.4_
+  - [x] 4.2 Implement async image loading method
+    - Create loadImage method that loads NSImage from ImageItem
+    - Handle loading errors gracefully
+    - _Requirements: 7.1, 7.2_
+  - [x] 4.3 Write property test for image filtering
+    - **Property 1: Image filtering by supported formats**
+    - **Validates: Requirements 1.2**
+  - [x] 4.4 Write property test for alphabetical ordering
+    - **Property 2: Alphabetical image ordering**
+    - **Validates: Requirements 1.4**
+  - [x] 4.5 Write unit tests for ImageLoaderService
+    - Test empty folder handling
+    - Test folder with no valid images
+    - Test error logging for failed image loads
+    - _Requirements: 1.3, 7.1, 7.2_
+
+- [x] 5. Implement SlideshowViewModel
+  - [x] 5.1 Create SlideshowViewModel class with published properties
+    - Define @Published properties for images, currentIndex, currentImage, state, configuration, errorMessage
+    - Initialize with ConfigurationService
+    - Load saved configuration on init
+    - _Requirements: 6.2_
+  - [x] 5.2 Implement folder selection logic
+    - Create selectFolder method using NSOpenPanel
+    - Call ImageLoaderService to load images from selected folder
+    - Handle empty folder errors
+    - Update images array and load first image
+    - _Requirements: 1.1, 1.2, 1.3, 1.4_
+  - [x] 5.3 Implement slideshow playback control
+    - Create startSlideshow, pauseSlideshow, and resumeSlideshow methods
+    - Implement timer-based automatic advancement using transitionDuration
+    - Update state property appropriately
+    - _Requirements: 4.1, 4.2, 2.2_
+  - [x] 5.4 Implement manual navigation
+    - Create nextImage and previousImage methods
+    - Handle index wrapping at boundaries (loop from last to first)
+    - Load images asynchronously when index changes
+    - Handle image loading errors by skipping to next valid image
+    - _Requirements: 4.3, 4.4, 4.5, 7.1, 7.2_
+  - [x] 5.5 Implement configuration updates
+    - Create updateConfiguration method
+    - Save configuration via ConfigurationService
+    - Apply new settings to active slideshow
+    - _Requirements: 2.2, 3.2, 6.1_
+  - [x] 5.6 Write property test for transition duration application
+    - **Property 3: Transition duration application**
+    - **Validates: Requirements 2.2**
+  - [x] 5.7 Write property test for transition effect application
+    - **Property 4: Transition effect application**
+    - **Validates: Requirements 3.2**
+  - [x] 5.8 Write property test for forward navigation
+    - **Property 5: Forward navigation advancement**
+    - **Validates: Requirements 4.3**
+  - [x] 5.9 Write property test for backward navigation
+    - **Property 6: Backward navigation retreat**
+    - **Validates: Requirements 4.4**
+  - [x] 5.10 Write property test for error recovery
+    - **Property 9: Error recovery continues playback**
+    - **Validates: Requirements 7.1**
+  - [x] 5.11 Write property test for error logging
+    - **Property 10: Error logging includes filename**
+    - **Validates: Requirements 7.2**
+  - [x] 5.12 Write unit tests for ViewModel
+    - Test state transitions between idle, playing, paused
+    - Test boundary navigation (first and last image)
+    - Test folder inaccessibility during playback
+    - _Requirements: 4.1, 4.2, 4.5, 7.3_
+
+- [x] 6. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 7. Implement SlideshowDisplayView
+  - [x] 7.1 Create SwiftUI view for image display
+    - Display current image using Image view
+    - Implement aspect-fit scaling with GeometryReader
+    - Center image and add background color for letterboxing
+    - Handle window resize events
+    - _Requirements: 5.1, 5.2, 5.3_
+  - [x] 7.2 Implement transition animations
+    - Add fade transition using SwiftUI .transition modifier
+    - Add slide transition using SwiftUI .transition modifier
+    - Support no transition (immediate change)
+    - Apply transition based on configuration
+    - _Requirements: 3.1, 3.2, 3.3_
+  - [x] 7.3 Write property test for aspect ratio preservation
+    - **Property 7: Image scaling preserves aspect ratio**
+    - **Validates: Requirements 5.1, 5.2, 5.3**
+
+- [x] 8. Implement ControlPanelView
+  - [x] 8.1 Create control panel UI
+    - Add play/pause button that toggles based on state
+    - Add previous and next buttons
+    - Add keyboard shortcuts for arrow keys
+    - Wire buttons to ViewModel methods
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
+  - [x] 8.2 Write unit tests for control panel interactions
+    - Test play/pause button state changes
+    - Test keyboard shortcut handling
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
+
+- [x] 9. Implement ConfigurationView
+  - [x] 9.1 Create settings panel UI
+    - Add slider for transition duration (1-60 seconds) with label
+    - Add picker for transition effect (fade, slide, none)
+    - Display current values from configuration
+    - Wire controls to ViewModel updateConfiguration method
+    - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.2, 3.3_
+  - [x] 9.2 Write unit tests for configuration UI
+    - Test duration slider bounds validation
+    - Test effect picker options
+    - _Requirements: 2.1, 3.1_
+
+- [x] 10. Implement MainView and app entry point
+  - [x] 10.1 Create MainView as root view
+    - Compose SlideshowDisplayView, ControlPanelView, and ConfigurationView
+    - Add toolbar or sidebar for configuration access
+    - Handle initial folder selection on launch
+    - Display error alerts from ViewModel
+    - _Requirements: 1.1, 7.1, 7.2, 7.3, 7.4_
+  - [x] 10.2 Create App struct with WindowGroup
+    - Set up main window with appropriate size
+    - Initialize SlideshowViewModel as StateObject
+    - Pass ViewModel to MainView
+    - _Requirements: All_
+
+- [x] 11. Final checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
