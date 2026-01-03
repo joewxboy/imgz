@@ -28,5 +28,21 @@ struct ImageSlideshowApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
+        .commands {
+            ViewCommands()
+        }
+    }
+}
+
+/// Commands for the View menu
+struct ViewCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Divider()
+            Button("Toggle Sidebar") {
+                NotificationCenter.default.post(name: NSNotification.Name("ToggleSidebar"), object: nil)
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+        }
     }
 }

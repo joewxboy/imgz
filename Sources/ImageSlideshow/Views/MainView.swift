@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// Root view that composes all slideshow components
 public struct MainView: View {
@@ -11,9 +12,11 @@ public struct MainView: View {
     @State private var showingConfiguration = false
     @State private var showingError = false
     @State private var showingFolderPicker = false
+    @State private var keyMonitor: Any?
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .automatic
     
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
             // Sidebar with configuration
             ConfigurationView(viewModel: viewModel)
         } detail: {
@@ -39,6 +42,16 @@ public struct MainView: View {
         }
         .onAppear {
             updateWindowTitle()
+            setupKeyboardMonitoring()
+            // Make window accept first responder for keyboard events
+            DispatchQueue.main.async {
+                if let window = NSApplication.shared.windows.first {
+                    window.makeFirstResponder(window.contentView)
+                }
+            }
+        }
+        .onDisappear {
+            removeKeyboardMonitoring()
         }
         .onChange(of: viewModel.configuration.lastSelectedFolderPath) { _ in
             updateWindowTitle()
@@ -55,6 +68,20 @@ public struct MainView: View {
         }
         .onChange(of: viewModel.errorMessage) { newValue in
             showingError = newValue != nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleSidebar"))) { _ in
+            toggleSidebar()
+        }
+    }
+    
+    /// Toggles the sidebar visibility
+    private func toggleSidebar() {
+        withAnimation {
+            if sidebarVisibility == .detailOnly {
+                sidebarVisibility = .doubleColumn
+            } else {
+                sidebarVisibility = .detailOnly
+            }
         }
     }
     
@@ -96,6 +123,49 @@ public struct MainView: View {
                     await self.viewModel.loadFolder(url)
                 }
             }
+        }
+    }
+    
+    /// Sets up keyboard event monitoring for starring shortcuts
+    private func setupKeyboardMonitoring() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak viewModel] event in
+            guard let viewModel = viewModel else { return event }
+            
+            // Only handle when paused/idle and images are loaded
+            guard (viewModel.state == .paused || viewModel.state == .idle),
+                  !viewModel.images.isEmpty,
+                  viewModel.currentImage != nil else {
+                return event
+            }
+            
+            // Get the key character, handling both regular and special keys
+            let keyChar = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            
+            // Handle 's' key to star/unstar
+            if keyChar == "s" {
+                if viewModel.isCurrentImageStarred {
+                    viewModel.unstarCurrentImage()
+                } else {
+                    viewModel.starCurrentImage()
+                }
+                return nil // Consume the event
+            }
+            
+            // Handle 'u' key to unstar
+            if keyChar == "u" {
+                viewModel.unstarCurrentImage()
+                return nil // Consume the event
+            }
+            
+            return event
+        }
+    }
+    
+    /// Removes keyboard event monitoring
+    private func removeKeyboardMonitoring() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 }
