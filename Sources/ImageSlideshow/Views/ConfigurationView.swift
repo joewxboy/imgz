@@ -7,12 +7,14 @@ struct ConfigurationView: View {
     // Local state for editing configuration
     @State private var transitionDuration: Double
     @State private var transitionEffect: TransitionEffect
+    @State private var showOnlyStarred: Bool
     
     init(viewModel: SlideshowViewModel) {
         self.viewModel = viewModel
         // Initialize state from current configuration
         _transitionDuration = State(initialValue: viewModel.configuration.transitionDuration)
         _transitionEffect = State(initialValue: viewModel.configuration.transitionEffect)
+        _showOnlyStarred = State(initialValue: viewModel.configuration.showOnlyStarred)
     }
     
     var body: some View {
@@ -58,6 +60,15 @@ struct ConfigurationView: View {
                 }
             }
             
+            // Show Only Starred Toggle
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Show only starred photos", isOn: $showOnlyStarred)
+                    .font(.subheadline)
+                    .onChange(of: showOnlyStarred) { _ in
+                        applyConfiguration()
+                    }
+            }
+            
             Spacer()
         }
         .padding()
@@ -69,7 +80,8 @@ struct ConfigurationView: View {
         let newConfig = SlideshowConfiguration(
             transitionDuration: transitionDuration,
             transitionEffect: transitionEffect,
-            lastSelectedFolderPath: viewModel.configuration.lastSelectedFolderPath
+            lastSelectedFolderPath: viewModel.configuration.lastSelectedFolderPath,
+            showOnlyStarred: showOnlyStarred
         )
         viewModel.updateConfiguration(newConfig)
     }

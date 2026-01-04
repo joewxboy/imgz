@@ -22,6 +22,7 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         static let transitionDuration = "transitionDuration"
         static let transitionEffect = "transitionEffect"
         static let lastFolderPath = "lastFolderPath"
+        static let showOnlyStarred = "showOnlyStarred"
     }
     
     // Default configuration values
@@ -56,6 +57,7 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         userDefaults.set(config.transitionDuration, forKey: makeKey(BaseKeys.transitionDuration))
         userDefaults.set(config.transitionEffect.rawValue, forKey: makeKey(BaseKeys.transitionEffect))
         userDefaults.set(config.lastSelectedFolderPath, forKey: makeKey(BaseKeys.lastFolderPath))
+        userDefaults.set(config.showOnlyStarred, forKey: makeKey(BaseKeys.showOnlyStarred))
     }
     
     public func loadConfiguration() -> SlideshowConfiguration {
@@ -81,10 +83,14 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         // Load last folder path (optional)
         let lastFolderPath = userDefaults.string(forKey: makeKey(BaseKeys.lastFolderPath))
         
+        // Load showOnlyStarred (defaults to false if not found)
+        let showOnlyStarred = userDefaults.bool(forKey: makeKey(BaseKeys.showOnlyStarred))
+        
         return SlideshowConfiguration(
             transitionDuration: transitionDuration,
             transitionEffect: transitionEffect,
-            lastSelectedFolderPath: lastFolderPath
+            lastSelectedFolderPath: lastFolderPath,
+            showOnlyStarred: showOnlyStarred
         )
     }
 }

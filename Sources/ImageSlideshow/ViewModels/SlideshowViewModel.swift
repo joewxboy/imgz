@@ -29,7 +29,11 @@ public class SlideshowViewModel: ObservableObject {
     
     private let configurationService: ConfigurationService
     private let imageLoaderService: ImageLoaderService
+    private let starringService: StarringService
     private var slideshowTimer: Timer?
+    
+    /// Original unfiltered images array (used when filtering by starred status)
+    private var originalImages: [ImageItem] = []
     
     // MARK: - Initialization
     
@@ -37,12 +41,14 @@ public class SlideshowViewModel: ObservableObject {
     /// - Parameters:
     ///   - configurationService: Service for persisting configuration
     ///   - imageLoaderService: Service for loading images
+    ///   - starringService: Service for managing starred images
     ///   - instanceId: Optional instance identifier for configuration isolation.
     ///                 If provided, a UserDefaultsConfigurationService will be created with this instance ID.
     ///                 If nil and no configurationService is provided, uses shared configuration (backward compatible).
     public init(
         configurationService: ConfigurationService? = nil,
         imageLoaderService: ImageLoaderService = DefaultImageLoaderService(),
+        starringService: StarringService? = nil,
         instanceId: String? = nil
     ) {
         // Use provided configuration service, or create one with instance ID if provided
@@ -52,6 +58,13 @@ public class SlideshowViewModel: ObservableObject {
             self.configurationService = UserDefaultsConfigurationService(instanceId: instanceId)
         }
         self.imageLoaderService = imageLoaderService
+        
+        // Use provided starring service or create default one
+        if let starringService = starringService {
+            self.starringService = starringService
+        } else {
+            self.starringService = UserDefaultsStarringService()
+        }
         
         // Load saved configuration
         self.configuration = self.configurationService.loadConfiguration()
@@ -97,10 +110,29 @@ public class SlideshowViewModel: ObservableObject {
                 return
             }
             
-            // Update images array
-            images = loadedImages
+            // Store original images (unfiltered)
+            originalImages = loadedImages
+            
+            // Apply filter if enabled
+            if configuration.showOnlyStarred {
+                applyStarredFilter()
+            } else {
+                images = loadedImages
+            }
+            
+            // Reset index and validate
             currentIndex = 0
+            if currentIndex >= images.count && !images.isEmpty {
+                currentIndex = 0
+            }
+            
+            // Clear any previous error messages
             errorMessage = nil
+            
+            // If filter is enabled but no starred images, show message (not error)
+            if images.isEmpty && configuration.showOnlyStarred {
+                errorMessage = "No starred images found in this folder"
+            }
             
             // Update configuration with selected folder path
             configuration.lastSelectedFolderPath = url.path
@@ -247,15 +279,154 @@ public class SlideshowViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Starring
+    
+    /// Published property to track starred state changes
+    @Published var starredStateChanged: Bool = false
+    
+    /// Checks if the current image is starred
+    var isCurrentImageStarred: Bool {
+        guard currentIndex >= 0 && currentIndex < images.count,
+              let folderPath = configuration.lastSelectedFolderPath else {
+            return false
+        }
+        let imageItem = images[currentIndex]
+        return starringService.isStarred(imageUrl: imageItem.url, inFolder: folderPath)
+    }
+    
+    /// Stars the current image (only works when paused or idle)
+    func starCurrentImage() {
+        guard (state == .paused || state == .idle),
+              currentIndex >= 0 && currentIndex < images.count,
+              let folderPath = configuration.lastSelectedFolderPath else {
+            return
+        }
+        
+        let imageItem = images[currentIndex]
+        starringService.starImage(at: imageItem.url, inFolder: folderPath)
+        
+        // Notify SwiftUI that the starred state has changed
+        starredStateChanged.toggle()
+        objectWillChange.send()
+        
+        // If filter is active, update the filtered images array
+        if configuration.showOnlyStarred {
+            // Re-apply filter to include the newly starred image
+            applyStarredFilter()
+            // Ensure current index is still valid
+            if currentIndex >= images.count && !images.isEmpty {
+                currentIndex = 0
+            }
+        }
+    }
+    
+    /// Unstars the current image (only works when paused or idle)
+    func unstarCurrentImage() {
+        guard (state == .paused || state == .idle),
+              currentIndex >= 0 && currentIndex < images.count,
+              let folderPath = configuration.lastSelectedFolderPath else {
+            return
+        }
+        
+        let imageItem = images[currentIndex]
+        starringService.unstarImage(at: imageItem.url, inFolder: folderPath)
+        
+        // Notify SwiftUI that the starred state has changed
+        starredStateChanged.toggle()
+        objectWillChange.send()
+        
+        // If filter is active, update the filtered images array
+        if configuration.showOnlyStarred {
+            let previousIndex = currentIndex
+            // Re-apply filter to exclude the newly unstarred image
+            applyStarredFilter()
+            
+            // Adjust current index if needed
+            if images.isEmpty {
+                currentIndex = 0
+                currentImage = nil
+                errorMessage = "No starred images remaining"
+            } else {
+                errorMessage = nil // Clear error if images are available
+                if previousIndex >= images.count {
+                    // If we were at the end and it got removed, move to last image
+                    currentIndex = max(0, images.count - 1)
+                    Task {
+                        await loadCurrentImage()
+                    }
+                } else if previousIndex < images.count {
+                    // Try to maintain position, but load the image at the new index
+                    Task {
+                        await loadCurrentImage()
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Applies the starred filter to the images array
+    private func applyStarredFilter() {
+        guard let folderPath = configuration.lastSelectedFolderPath else {
+            images = originalImages
+            return
+        }
+        
+        let starredUrls = starringService.getStarredImageUrls(forFolder: folderPath)
+        images = originalImages.filter { starredUrls.contains($0.url) }
+    }
+    
+    /// Toggles the show-only-starred filter
+    func toggleShowOnlyStarred() {
+        var newConfig = configuration
+        newConfig.showOnlyStarred.toggle()
+        updateConfiguration(newConfig)
+    }
+    
     // MARK: - Configuration Management
     
     /// Updates the slideshow configuration
     /// - Parameter newConfig: The new configuration to apply
     func updateConfiguration(_ newConfig: SlideshowConfiguration) {
+        let wasFiltering = configuration.showOnlyStarred
+        let willFilter = newConfig.showOnlyStarred
+        
         // Save configuration
         do {
             try configurationService.saveConfiguration(newConfig)
             configuration = newConfig
+            
+            // If filter state changed, apply or remove filter
+            if wasFiltering != willFilter {
+                if willFilter {
+                    // Enable filter
+                    applyStarredFilter()
+                    // Validate current index
+                    if currentIndex >= images.count {
+                        currentIndex = 0
+                    }
+                    if images.isEmpty {
+                        errorMessage = "No starred images found in this folder"
+                        currentImage = nil
+                        // Clear error after a moment so user can still interact
+                    } else {
+                        errorMessage = nil // Clear any previous error
+                        Task {
+                            await loadCurrentImage()
+                        }
+                    }
+                } else {
+                    // Disable filter - restore original images
+                    images = originalImages
+                    // Validate current index
+                    if currentIndex >= images.count {
+                        currentIndex = 0
+                    }
+                    errorMessage = nil
+                    Task {
+                        await loadCurrentImage()
+                    }
+                }
+            }
             
             // If slideshow is playing, restart timer with new duration
             if state == .playing {

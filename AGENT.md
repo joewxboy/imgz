@@ -11,12 +11,13 @@
 All implementation tasks (Tasks 1-11) have been completed:
 - ✅ Project structure and setup
 - ✅ Core data models
-- ✅ Service layer (ConfigurationService, ImageLoaderService)
+- ✅ Service layer (ConfigurationService, ImageLoaderService, StarringService)
 - ✅ ViewModel implementation
 - ✅ SwiftUI views (MainView, SlideshowDisplayView, ControlPanelView, ConfigurationView)
 - ✅ Comprehensive test coverage (unit tests + property-based tests)
 - ✅ Distribution scripts (app bundle and DMG creation)
 - ✅ **Multiple instance support**: Each instance has isolated configuration and can run independently
+- ✅ **Photo starring feature**: Star/unstar photos, filter by starred status, keyboard shortcuts
 
 ### Build Status
 
@@ -53,7 +54,8 @@ ImageSlideshow/
 │   │   │   └── ConfigurationView.swift
 │   │   └── Services/
 │   │       ├── ImageLoaderService.swift
-│   │       └── ConfigurationService.swift
+│   │       ├── ConfigurationService.swift
+│   │       └── StarringService.swift
 │   └── ImageSlideshowApp/       # Executable target
 │       └── main.swift
 ├── Tests/
@@ -63,7 +65,8 @@ ImageSlideshow/
 │       │   ├── ConfigurationViewTests.swift
 │       │   ├── ControlPanelViewTests.swift
 │       │   ├── ImageLoaderServiceTests.swift
-│       │   └── SlideshowViewModelTests.swift
+│       │   ├── SlideshowViewModelTests.swift
+│       │   └── StarringServiceTests.swift
 │       └── PropertyTests/
 │           ├── ConfigurationPropertyTests.swift
 │           ├── ImageLoadingPropertyTests.swift
@@ -101,18 +104,27 @@ The project uses a dual-target structure:
    - Play/Pause
    - Next/Previous navigation
    - Keyboard shortcuts support
+   - Star/Unstar controls (button and keyboard shortcuts)
 
-4. **Image Display**
+4. **Photo Starring** ⭐
+   - Star and unstar individual photos when slideshow is paused or idle
+   - Visual indicators: star button in control panel and star overlay on images
+   - Keyboard shortcuts: "s" to star/unstar, "u" to unstar
+   - Per-folder starred state persistence (via StarringService)
+   - Filter toggle to show only starred photos
+   - Starred state persists across app restarts
+
+5. **Image Display**
    - Aspect ratio preservation
    - Aspect-fit scaling
    - Full-screen display
 
-5. **Error Handling**
+6. **Error Handling**
    - Graceful handling of corrupted images
    - Error logging with filename information
    - Automatic recovery and continuation
 
-6. **Multiple Instance Support**
+7. **Multiple Instance Support**
    - Run multiple slideshow instances simultaneously
    - Each instance has isolated configuration (transition duration, effect, folder selection)
    - Instance-specific UserDefaults keys prevent configuration conflicts
@@ -144,6 +156,7 @@ The project uses a dual-target structure:
   - ControlPanelViewTests
   - ImageLoaderServiceTests
   - SlideshowViewModelTests
+  - StarringServiceTests
 
 - **Property-Based Tests**: Comprehensive property validation
   - ConfigurationPropertyTests (Property 8)
@@ -294,6 +307,7 @@ The project is complete, but potential enhancements could include:
    - Playlist support
    - Image metadata display
    - Export functionality
+   - Starred photos export/import
 
 ## Key Takeaways for Agents
 
@@ -304,6 +318,7 @@ The project is complete, but potential enhancements could include:
 5. **Distribution Ready**: Scripts available for creating distributable packages
 6. **Documentation Complete**: All major aspects are documented
 7. **Multiple Instance Support**: Each instance has isolated configuration, allowing multiple slideshows to run simultaneously
+8. **Photo Starring**: Complete starring feature with UI controls, keyboard shortcuts, filtering, and per-folder persistence
 
 ## Important Notes
 

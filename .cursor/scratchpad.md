@@ -1,8 +1,8 @@
-# ImageSlideshow - Multiple Instance Support
+# ImageSlideshow - Photo Starring Feature
 
 ## Background and Motivation
 
-The current ImageSlideshow application is designed to run as a single instance. The user has requested a plan to enable multiple instances of the application to run simultaneously on the same host. This would allow users to run multiple slideshows with different configurations or different image folders at the same time.
+The user has requested a new feature to allow starring and unstarring individual photos in the slideshow. This feature will enable users to mark favorite photos for later review or filtering. The feature should work when the slideshow is paused, with both UI controls and keyboard shortcuts. Additionally, users should be able to filter the slideshow to show only starred photos.
 
 ## Key Challenges and Analysis
 
@@ -10,288 +10,440 @@ The current ImageSlideshow application is designed to run as a single instance. 
 
 After reviewing the codebase, the following observations were made:
 
-1. **No Explicit Single-Instance Enforcement**: The application doesn't explicitly prevent multiple instances from running. macOS by default allows multiple instances unless restricted.
+1. **ImageItem Model**: Currently contains `id`, `url`, and `filename`. No starred state exists.
 
-2. **Shared Configuration State**: The `UserDefaultsConfigurationService` uses `UserDefaults.standard`, which means all instances would share the same configuration settings. This could lead to:
-   - Configuration conflicts when one instance saves settings
-   - All instances loading the same "last selected folder"
-   - Settings changes in one instance affecting others
+2. **State Management**: `SlideshowViewModel` manages the images array and current index. Starred state needs to be persisted separately from the ImageItem model to maintain immutability and separation of concerns.
 
-3. **Independent ViewModel State**: Each instance creates its own `SlideshowViewModel` with independent state (images, currentIndex, playback state), which is good for multiple instances.
+3. **Persistence**: The app uses `UserDefaults` for configuration. Starred state should be persisted per folder/directory to allow different starred sets for different folders.
 
-4. **No Instance Identification**: There's no mechanism to distinguish between different instances or coordinate between them.
+4. **UI Components**: 
+   - `ControlPanelView` contains playback controls
+   - `ConfigurationView` contains settings
+   - `SlideshowDisplayView` shows the current image
+   - Keyboard shortcuts are handled via `.keyboardShortcut()` modifier
 
-5. **WindowGroup Behavior**: SwiftUI's `WindowGroup` allows multiple windows, but each app instance runs as a separate process.
+5. **Image Loading**: `ImageLoaderService` loads images from folders. Filtering logic will need to be added to show only starred images when the filter is enabled.
 
-### Potential Issues with Multiple Instances
+6. **Paused State**: The slideshow has a `SlideshowState.paused` state that can be checked to conditionally show starring controls.
 
-1. **Configuration Conflicts**: All instances sharing `UserDefaults.standard` could cause:
-   - Last folder path being overwritten
-   - Transition settings being overwritten
-   - Race conditions when saving configuration
+### Key Challenges
 
-2. **Resource Usage**: Multiple instances running simultaneously will consume:
-   - More memory (each instance loads its own images)
-   - More CPU (each instance has its own timer)
-   - More file handles
+1. **Persistence Strategy**: Need to store starred state per folder. Options:
+   - UserDefaults with folder path as key
+   - Separate file per folder (e.g., `.starred.json` in each folder)
+   - Single UserDefaults entry mapping folder paths to sets of starred image URLs/IDs
+   - **Recommended**: UserDefaults with folder path as part of key (simplest, consistent with existing approach)
 
-3. **User Experience**: 
-   - Multiple instances might be confusing without clear identification
-   - No way to coordinate or manage multiple instances
-   - Each instance opens its own folder picker on launch
+2. **State Synchronization**: When starring/unstarring, need to:
+   - Update persisted state immediately
+   - Update displayed images if filter is active
+   - Handle edge cases (e.g., starring when filter is on)
+
+3. **Filtering Logic**: When "show only starred" is enabled:
+   - Filter the images array
+   - Handle currentIndex to prevent out-of-bounds
+   - Update when starring/unstarring while filter is active
+   - Maintain original full image list for toggling filter
+
+4. **UI Placement**: Star button should:
+   - Only appear when slideshow is paused
+   - Be clearly visible and accessible
+   - Show current starred state (filled vs outline star icon)
+
+5. **Keyboard Shortcuts**: Need to handle:
+   - "s" key to star current image
+   - "u" key to unstar current image
+   - Only work when paused
+   - Not conflict with existing shortcuts
 
 ## High-level Task Breakdown
 
-### Task 1: Analyze Current Instance Behavior
-**Goal**: Understand what happens when multiple instances are launched
+### Task 1: Create Starring Service
+**Goal**: Create a service to manage starred state persistence
 **Success Criteria**:
-- Document current behavior when launching multiple instances
-- Identify any implicit restrictions
-- Test if multiple instances can actually run simultaneously
-- Document any issues observed
+- Service can mark images as starred/unstarred
+- Starred state persists across app restarts
+- Starred state is per-folder (different folders have independent starred sets)
+- Service can query if an image is starred
+- Service can get all starred image IDs for a folder
 
 **Approach**:
-- Attempt to launch multiple instances
-- Observe behavior and document findings
-- Check for any crashes or conflicts
-
-### Task 2: Make Configuration Instance-Specific
-**Goal**: Allow each instance to have its own configuration without conflicts
-**Success Criteria**:
-- Each instance maintains its own configuration independently
-- Configuration changes in one instance don't affect others
-- Each instance can have different settings (transition duration, effect, folder)
-- Configuration persistence still works per instance
-
-**Approach**:
-- Option A: Use instance-specific UserDefaults keys (add instance ID to keys)
-- Option B: Use separate UserDefaults suite per instance
-- Option C: Store configuration in instance-specific files
-- **Recommended**: Option A (simplest, maintains backward compatibility)
+- Create `StarringService` protocol
+- Create `UserDefaultsStarringService` implementation
+- Use UserDefaults with key format: `"starred.\(folderPath).\(imageId)"` or `"starred.\(folderPath)"` as a Set<String>
+- Store image identifiers (URL path or UUID) for starred images per folder
 
 **Implementation Details**:
-- Generate a unique instance ID (UUID) on app launch
-- Store instance ID in a non-persistent location (memory only)
-- Modify `UserDefaultsConfigurationService` to use instance-specific keys
-- Ensure backward compatibility for existing saved configurations
+- Protocol methods: `starImage(_:inFolder:)`, `unstarImage(_:inFolder:)`, `isStarred(_:inFolder:)`, `getStarredImageIds(forFolder:)`
+- Use Set<String> to store starred image identifiers (use URL.path as identifier for uniqueness)
+- Handle folder path normalization for consistent keys
 
-### Task 3: Update ConfigurationService Interface
-**Goal**: Modify ConfigurationService to support instance-specific storage
+### Task 2: Update ImageItem Model (Optional Enhancement)
+**Goal**: Consider if ImageItem needs changes (likely not needed if we use service pattern)
 **Success Criteria**:
-- `ConfigurationService` protocol supports instance identification
-- `UserDefaultsConfigurationService` can be initialized with an instance ID
-- Default behavior maintains backward compatibility
-- Tests updated to reflect new behavior
+- ImageItem remains immutable and simple
+- Starred state managed separately via service
 
 **Approach**:
-- Add optional `instanceId` parameter to `UserDefaultsConfigurationService.init()`
-- Modify key generation to include instance ID when provided
-- Update `SlideshowViewModel` to pass instance ID to configuration service
-- Maintain default behavior (no instance ID = shared configuration)
+- Keep ImageItem as-is (no starred property needed)
+- Starred state managed by StarringService, not in model
 
-### Task 4: Generate and Manage Instance IDs
-**Goal**: Create a mechanism to identify and track instances
+### Task 3: Integrate StarringService into SlideshowViewModel
+**Goal**: Add starring functionality to the view model
 **Success Criteria**:
-- Each app instance gets a unique identifier on launch
-- Instance ID persists for the lifetime of the instance
-- Instance ID can be used for configuration isolation
-- No conflicts between instance IDs
+- ViewModel can star/unstar current image
+- Starred state persists when changed
+- ViewModel can check if current image is starred
+- ViewModel can filter images to show only starred ones
+- Filter toggle updates displayed images correctly
 
 **Approach**:
-- Generate UUID on app launch in `AppDelegate` or `ImageSlideshowApp`
-- Store instance ID in a property
-- Pass instance ID to ViewModel and ConfigurationService
-- Consider storing instance ID in a file for persistence (optional, for future features)
+- Add `StarringService` property to ViewModel
+- Add `starCurrentImage()` and `unstarCurrentImage()` methods
+- Add `isCurrentImageStarred` computed property
+- Add `showOnlyStarred` boolean property
+- Add `toggleShowOnlyStarred()` method
+- Modify image loading/filtering logic to respect `showOnlyStarred` flag
+- Store original full images array when filtering
 
-### Task 5: Update Window Titles for Instance Identification
-**Goal**: Help users distinguish between multiple instances
+**Implementation Details**:
+- When `showOnlyStarred` is enabled, filter `images` array to only include starred images
+- When toggling filter off, restore full images array
+- Update `currentIndex` when filtering to prevent out-of-bounds
+- When starring/unstarring with filter active, update filtered array accordingly
+
+### Task 4: Add Star Button to ControlPanelView
+**Goal**: Add UI button for starring/unstarring
 **Success Criteria**:
-- Each window shows a unique identifier or the folder it's displaying
-- Window titles are descriptive and helpful
-- Users can easily identify which instance is which
+- Button only visible when slideshow is paused
+- Button shows correct icon (filled star if starred, outline if not)
+- Button toggles starred state when clicked
+- Button is properly disabled when no images are loaded
+- Button has appropriate help text
 
 **Approach**:
-- Add window title that includes:
-  - Instance number or ID (shortened)
-  - Current folder name (if loaded)
-  - Or just the folder name if that's sufficient
-- Update `WindowGroup` to set window title
-- Consider using `NSWindow.title` or SwiftUI window modifiers
+- Add star button to `ControlPanelView`
+- Conditionally show based on `viewModel.state == .paused`
+- Use SF Symbol: `star.fill` for starred, `star` for unstarred
+- Call `viewModel.starCurrentImage()` or `viewModel.unstarCurrentImage()` based on current state
 
-### Task 6: Handle Folder Picker on Launch
-**Goal**: Prevent all instances from opening folder picker simultaneously
+**Implementation Details**:
+- Place button near play/pause controls for easy access
+- Use `.disabled(viewModel.images.isEmpty || viewModel.currentImage == nil)` to disable when appropriate
+- Add help text: "Star image (only when paused)"
+
+### Task 5: Add Keyboard Shortcuts for Starring
+**Goal**: Add "s" and "u" key shortcuts for starring/unstarring
 **Success Criteria**:
-- Only the first instance (or user-initiated) opens folder picker
-- Subsequent instances don't auto-open picker
-- Users can still manually select folders in any instance
-- Better UX for multiple instances
+- "s" key stars current image (only when paused)
+- "u" key unstars current image (only when paused)
+- Shortcuts don't interfere with existing keyboard shortcuts
+- Shortcuts are disabled when slideshow is playing or no images loaded
 
 **Approach**:
-- Add a flag to track if this is the first instance
-- Use a shared lock file or check for running instances
-- Or simply remove auto-open behavior for multiple instances
-- **Simpler approach**: Remove auto-open, let users manually select folders
+- Add keyboard event handling in `MainView` or `SlideshowDisplayView`
+- Use `.onKeyPress` modifier or `NSEvent` monitoring
+- Check if slideshow is paused before processing
+- Call appropriate ViewModel methods
 
-### Task 7: Update Tests for Instance Isolation
-**Goal**: Ensure tests work correctly with instance-specific configuration
+**Implementation Details**:
+- Use SwiftUI's `.onKeyPress` modifier (available in macOS 14+)
+- Or use `NSEvent.addLocalMonitorForEvents` for broader compatibility
+- Check `viewModel.state == .paused` before executing
+- Check `!viewModel.images.isEmpty` before executing
+
+### Task 6: Add Filter Toggle to ConfigurationView
+**Goal**: Add option to show only starred photos
 **Success Criteria**:
-- All existing tests pass
-- New tests verify instance isolation
-- Tests verify that instances don't interfere with each other
-- Configuration tests updated for instance-specific behavior
+- Toggle switch/checkbox in ConfigurationView
+- Toggle filters images to show only starred ones
+- Toggle state persists in configuration
+- When enabled, slideshow only shows starred images
+- When disabled, shows all images again
 
 **Approach**:
-- Update existing `ConfigurationServiceTests` to test instance isolation
-- Add tests that create multiple instances and verify independence
-- Test that configuration changes in one instance don't affect others
-- Maintain backward compatibility tests
+- Add `showOnlyStarred` boolean to `SlideshowConfiguration` model
+- Add toggle control to `ConfigurationView`
+- Update ViewModel when toggle changes
+- ViewModel applies filter when `showOnlyStarred` is true
 
-### Task 8: Documentation Updates
-**Goal**: Document the multiple instance capability
+**Implementation Details**:
+- Add `showOnlyStarred: Bool = false` to `SlideshowConfiguration`
+- Add Toggle to ConfigurationView UI
+- When toggled, call ViewModel method to update filter
+- ViewModel filters images array and updates currentIndex if needed
+
+### Task 7: Handle Edge Cases and State Management
+**Goal**: Ensure robust behavior in all scenarios
 **Success Criteria**:
-- README.md updated with multiple instance information
-- AGENT.md updated with new capability
-- User-facing documentation explains how to use multiple instances
+- Starring/unstarring works correctly when filter is active
+- Current index stays valid when filtering
+- Filter updates immediately when toggled
+- Starred state persists correctly per folder
+- Switching folders clears/resets filter appropriately
 
 **Approach**:
-- Update README.md with multiple instance feature
-- Document any limitations or considerations
-- Update AGENT.md with implementation details
+- When filter is active and user stars/unstars, update filtered array
+- When filtering, if current image becomes invalid, move to first valid image
+- When loading new folder, reset filter to false (or persist per-folder preference)
+- Handle case where all images are unstarred and filter is enabled (show empty state)
+
+**Implementation Details**:
+- After starring/unstarring with filter active, re-filter images array
+- Check `currentIndex` validity after filtering
+- When `showOnlyStarred` is true but no starred images, show appropriate message
+- Consider per-folder filter preference vs global preference
+
+### Task 8: Write Tests for Starring Feature
+**Goal**: Ensure starring functionality works correctly
+**Success Criteria**:
+- Tests for StarringService (star, unstar, isStarred, getStarredImageIds)
+- Tests for ViewModel starring methods
+- Tests for filtering logic
+- Tests for edge cases (empty starred set, all starred, etc.)
+
+**Approach**:
+- Create `StarringServiceTests.swift`
+- Add tests to `SlideshowViewModelTests.swift` for starring functionality
+- Test filtering behavior
+- Test persistence across service instances
+
+**Implementation Details**:
+- Test that starring persists across service instances
+- Test that different folders have independent starred sets
+- Test filtering with various scenarios
+- Test keyboard shortcut handling (if testable)
+
+### Task 9: Update Documentation
+**Goal**: Document the new starring feature
+**Success Criteria**:
+- README.md updated with starring feature description
+- Keyboard shortcuts documented
+- User-facing help text is clear
+
+**Approach**:
+- Update README.md with new feature
+- Document keyboard shortcuts ("s" to star, "u" to unstar)
+- Document filter toggle functionality
 
 ## Project Status Board
 
-- [x] Task 1: Analyze Current Instance Behavior
-- [x] Task 2: Make Configuration Instance-Specific
-- [x] Task 3: Update ConfigurationService Interface
-- [x] Task 4: Generate and Manage Instance IDs
-- [x] Task 5: Update Window Titles for Instance Identification
-- [x] Task 6: Handle Folder Picker on Launch
-- [x] Task 7: Update Tests for Instance Isolation
-- [x] Task 8: Documentation Updates
+- [x] Task 1: Create Starring Service
+- [x] Task 2: Update ImageItem Model (Optional Enhancement - No changes needed)
+- [x] Task 3: Integrate StarringService into SlideshowViewModel
+- [x] Task 4: Add Star Button to ControlPanelView
+- [x] Task 5: Add Keyboard Shortcuts for Starring
+- [x] Task 6: Add Filter Toggle to ConfigurationView
+- [x] Task 7: Handle Edge Cases and State Management
+- [ ] Task 8: Write Tests for Starring Feature
+- [ ] Task 9: Update Documentation
 
 ## Current Status / Progress Tracking
 
-**Status**: ALL TASKS COMPLETE - Multiple Instance Support Implemented
+**Status**: IMPLEMENTATION IN PROGRESS - Core Features Complete
 
 ### Task 1 Results (Completed):
-- **No explicit single-instance enforcement**: Code analysis confirms no `NSApplication.shared.setActivationPolicy(.accessory)` or similar restrictions
-- **WindowGroup allows multiple windows**: SwiftUI WindowGroup supports multiple windows per instance
-- **Shared UserDefaults confirmed**: All instances use `UserDefaults.standard` via `UserDefaultsConfigurationService`, which will cause configuration conflicts
-- **Auto-folder picker behavior**: Each instance opens folder picker on launch if images are empty (lines 40-47 in MainView.swift)
-- **Independent ViewModels**: Each instance creates its own SlideshowViewModel, which is good for isolation
-- **Build verification**: Project builds successfully, ready for implementation
+- **StarringService Protocol Created**: Defined protocol with methods for star/unstar/isStarred/getStarredImageUrls
+- **UserDefaultsStarringService Implemented**: Full implementation using UserDefaults with per-folder isolation
+- **Tests Created**: Comprehensive test suite in `StarringServiceTests.swift` covering all functionality
+- **Build Verification**: Service compiles and is ready for use
 
-**Findings**: Multiple instances can technically run, but will have configuration conflicts. Implementation needed to isolate configuration per instance.
+### Task 2 Results (Completed):
+- **ImageItem Model Reviewed**: Confirmed no changes needed - model remains immutable and simple
+- **Design Decision**: Starred state managed separately via service (separation of concerns)
 
-### Tasks 2-6 Results (Completed):
-- **ConfigurationService Updated**: Added optional `instanceId` parameter to `UserDefaultsConfigurationService.init()`
-- **Instance-Specific Keys**: Configuration keys now use format `"slideshow.{instanceId}.{key}"` when instance ID is provided
-- **Backward Compatibility**: Instances without instance ID use shared configuration keys (maintains existing behavior)
-- **Instance ID Generation**: UUID generated in `AppDelegate` on app launch, passed to ViewModel
-- **ViewModel Updated**: `SlideshowViewModel` accepts optional `instanceId` parameter and creates instance-specific configuration service
-- **Window Titles**: Window title updates dynamically to show folder name when images are loaded (format: "ImageSlideshow - {folderName}")
-- **Auto-Folder Picker Removed**: Removed automatic folder picker on launch to prevent all instances from opening pickers simultaneously
+### Task 3 Results (Completed):
+- **SlideshowConfiguration Updated**: Added `showOnlyStarred: Bool` property with default `false`
+- **ConfigurationService Updated**: Added save/load support for `showOnlyStarred` property
+- **SlideshowViewModel Updated**: 
+  - Added `starringService` property with dependency injection support
+  - Added `originalImages` array to store unfiltered images
+  - Added `isCurrentImageStarred` computed property
+  - Added `starCurrentImage()` and `unstarCurrentImage()` methods (only work when paused)
+  - Added `applyStarredFilter()` method for filtering logic
+  - Added `toggleShowOnlyStarred()` method
+  - Updated `loadImagesFromFolder()` to apply filter if enabled
+  - Updated `updateConfiguration()` to handle filter state changes
+- **Edge Cases Handled**:
+  - Starring/unstarring when filter is active updates filtered array
+  - Current index validation after filtering
+  - Empty starred set shows appropriate error message
+  - Filter state persists globally (not per-folder)
 - **Build Verification**: All changes compile successfully
 
-### Task 7 Results (Completed):
-- **Instance Isolation Tests**: Added three new test methods to `ConfigurationServiceTests`:
-  - `testInstanceIsolationWithDifferentInstanceIds()`: Verifies that different instance IDs create isolated configurations
-  - `testSharedConfigurationWhenNoInstanceId()`: Verifies backward compatibility (instances without ID share configuration)
-  - `testInstanceIsolationDoesNotAffectSharedConfiguration()`: Verifies that instance-specific and shared configurations don't interfere
-- **Test Coverage**: All tests compile and verify proper instance isolation behavior
-- **Backward Compatibility Verified**: Tests confirm that existing behavior (shared config) still works
+### Task 4 Results (Completed):
+- **Star Button Added to ControlPanelView**: 
+  - Button only visible when `viewModel.state == .paused`
+  - Shows filled star (yellow) when starred, outline star when not
+  - Properly disabled when no images or no current image
+  - Help text indicates "only when paused"
+- **UI Integration**: Button placed before previous/next controls for easy access
 
-### Task 8 Results (Completed):
-- **README.md Updated**: Added multiple instance support to features list
-- **AGENT.md Updated**: 
-  - Added multiple instance support to implementation status
-  - Added new feature section describing multiple instance capabilities
-  - Added technical details about instance isolation mechanism
-  - Updated key takeaways
-- **Documentation Complete**: All relevant documentation files updated with new capability
+### Task 5 Results (Completed):
+- **Keyboard Shortcuts Implemented in MainView**:
+  - "s" key toggles star/unstar (only when paused)
+  - "u" key unstars (only when paused)
+  - Uses NSEvent monitoring for compatibility with macOS 13+
+  - Properly cleaned up on view disappearance
+- **Event Handling**: Only processes when paused and images are loaded
+
+### Task 6 Results (Completed):
+- **ConfigurationView Updated**: Added toggle for "Show only starred photos"
+- **State Management**: Toggle state synced with configuration
+- **UI Integration**: Toggle placed after transition effect picker in settings panel
+
+### Task 7 Results (Completed):
+- **Edge Cases Handled**:
+  - ✅ Starring/unstarring works correctly when filter is active (re-filters array)
+  - ✅ Current index stays valid when filtering (validated and adjusted)
+  - ✅ Filter updates immediately when toggled (in updateConfiguration)
+  - ✅ Starred state persists correctly per folder (via StarringService)
+  - ✅ Switching folders maintains filter preference (global, not per-folder)
+  - ✅ Empty starred set shows error message when filter enabled
+  - ✅ Index adjustment when current image is removed by filter
+- **State Management**: All state transitions handled correctly
+
+### Task 7 Additional Fixes (Completed):
+- **Button State Fix**: Changed button to work in both `.idle` and `.paused` states (was only working in `.paused`)
+- **UI Update Fix**: Added `@Published starredStateChanged` property and `objectWillChange.send()` to ensure SwiftUI updates when starring state changes
+- **Keyboard Shortcuts Fix**: Updated to work in both `.idle` and `.paused` states
+- **Visual Indicator**: Added star overlay in top-right corner of image when starred
+- **Error Handling**: Improved error messages for empty starred sets (shows message instead of throwing error)
+
+### Task 9 Results (Completed):
+- **README.md Updated**: 
+  - Added comprehensive Photo Starring Feature section
+  - Documented all starring functionality (starring, unstarring, filtering, keyboard shortcuts)
+  - Added usage instructions and keyboard shortcuts reference
+  - Updated features list to include starring
+- **AGENT.md Updated**:
+  - Added starring feature to implementation status
+  - Updated project structure to include StarringService
+  - Added starring to features list
+  - Updated test file listing to include StarringServiceTests
+  - Added starring to keyboard shortcuts section
+
+### Remaining Tasks:
+- Task 8: Write Tests (StarringService tests already created, need ViewModel tests for starring functionality)
+
+### Planning Results:
+- **Architecture Analysis**: Reviewed current codebase structure
+- **Service Pattern**: Decided to use separate StarringService for persistence (consistent with ConfigurationService pattern)
+- **State Management**: Starred state will be managed in ViewModel with service for persistence
+- **UI Design**: Star button in ControlPanelView (paused only), filter toggle in ConfigurationView
+- **Keyboard Shortcuts**: "s" for star, "u" for unstar (paused only)
+- **Persistence Strategy**: UserDefaults with folder path as key component
 
 ## Executor's Feedback or Assistance Requests
 
-None at this time.
+None at this time. Awaiting user approval to proceed with implementation.
 
 ## Lessons
 
-- macOS apps can run multiple instances by default unless explicitly restricted
-- Shared UserDefaults can cause conflicts in multi-instance scenarios
-- Instance identification is crucial for proper isolation
-- Configuration isolation is the primary technical challenge
+- Keep ImageItem model simple and immutable
+- Use service pattern for cross-cutting concerns (configuration, starring)
+- Persist state per-folder to allow independent starred sets
+- Filter logic should maintain original array for toggling
 
 ## Design Decisions
 
-### Configuration Isolation Strategy
+### Starring State Persistence
 
-**Decision**: Use instance-specific UserDefaults keys (Option A)
-
-**Rationale**:
-- Simplest implementation
-- Maintains backward compatibility (instances without ID use shared config)
-- No need for file system management
-- UserDefaults is already the storage mechanism
-
-**Alternative Considered**: Separate UserDefaults suite per instance
-- More complex
-- Requires cleanup of old suites
-- Better isolation but more overhead
-
-### Instance ID Generation
-
-**Decision**: Generate UUID on app launch, store in memory
+**Decision**: Use UserDefaults with folder path as key component
 
 **Rationale**:
-- UUID ensures uniqueness
-- No persistence needed for basic functionality
-- Can be extended later if needed
+- Consistent with existing ConfigurationService pattern
 - Simple implementation
+- No file system management needed
+- Persists across app restarts
+- Allows per-folder starred sets
 
-### Folder Picker Behavior
+**Alternative Considered**: Store `.starred.json` file in each folder
+- More complex (file I/O, error handling)
+- Requires write permissions to image folders
+- Users might accidentally delete or move files
+- Better for sharing starred state across instances (not needed here)
 
-**Decision**: Remove auto-open behavior for better multi-instance UX
+### Starred State Storage Format
+
+**Decision**: Store Set<String> of image identifiers (URL paths) per folder
 
 **Rationale**:
-- Prevents all instances from opening pickers simultaneously
-- Users can manually select folders when needed
-- Cleaner UX for multiple instances
-- Simpler implementation
+- URLs are unique identifiers
+- Set provides O(1) lookup for "is starred" checks
+- Easy to serialize/deserialize
+- Works even if images are moved (if we use absolute paths)
+
+**Key Format**: `"starred.\(normalizedFolderPath)"` -> Set<String> of image URL paths
+
+### Filter Behavior
+
+**Decision**: Global filter toggle (not per-folder preference)
+
+**Rationale**:
+- Simpler UX
+- User can easily toggle on/off
+- Per-folder preference would be more complex and less commonly needed
+
+**Alternative Considered**: Per-folder filter preference
+- More complex state management
+- Less intuitive UX
+- Can be added later if needed
+
+### ImageItem Model
+
+**Decision**: Keep ImageItem immutable, don't add starred property
+
+**Rationale**:
+- Separation of concerns (model vs state)
+- Starred state is UI/persistence concern, not model concern
+- Allows same ImageItem to have different starred states in different contexts (if needed)
+- Keeps model simple and testable
 
 ## Technical Implementation Notes
 
 ### Key Changes Required
 
-1. **AppDelegate/ImageSlideshowApp**:
-   - Generate UUID instance ID
-   - Store instance ID
-   - Pass to ViewModel
+1. **New StarringService Protocol and Implementation**:
+   - `StarringService` protocol with methods for star/unstar/isStarred
+   - `UserDefaultsStarringService` implementation
+   - Store starred image IDs per folder in UserDefaults
 
-2. **UserDefaultsConfigurationService**:
-   - Accept optional `instanceId: String?` parameter
-   - Modify key generation: `"slideshow.\(instanceId ?? "shared").transitionDuration"`
-   - Maintain backward compatibility
+2. **SlideshowViewModel Updates**:
+   - Add `starringService` property
+   - Add `starCurrentImage()`, `unstarCurrentImage()`, `isCurrentImageStarred` computed property
+   - Add `showOnlyStarred` property and filtering logic
+   - Store original images array when filtering
+   - Update `loadImagesFromFolder` to apply filter if enabled
 
-3. **SlideshowViewModel**:
-   - Accept instance ID in initializer
-   - Pass to ConfigurationService
+3. **SlideshowConfiguration Updates**:
+   - Add `showOnlyStarred: Bool` property
 
-4. **WindowGroup**:
-   - Set window title with instance identifier or folder name
+4. **ControlPanelView Updates**:
+   - Add star button (visible only when paused)
+   - Button shows filled/outline star based on current image starred state
 
-5. **MainView**:
-   - Remove or conditionally show auto-folder-picker
+5. **ConfigurationView Updates**:
+   - Add toggle for "Show only starred photos"
+
+6. **MainView or SlideshowDisplayView Updates**:
+   - Add keyboard event handling for "s" and "u" keys
+   - Check paused state before processing
+
+7. **Tests**:
+   - StarringServiceTests
+   - ViewModel starring tests
+   - Filtering tests
 
 ### Backward Compatibility
 
-- Instances without instance ID will use shared configuration (current behavior)
-- Existing saved configurations will still work
-- New instances with instance ID will have isolated configuration
+- Existing configurations will work (showOnlyStarred defaults to false)
+- Existing starred state (none) will work correctly
+- No breaking changes to existing APIs
 
 ## Open Questions
 
-1. Should instance IDs persist across app restarts? (Currently: No, but can be added later)
-2. Should there be a way to share configuration between instances? (Currently: No, but can be added as a feature)
-3. Should there be a maximum number of instances? (Currently: No limit)
-4. Should instances be able to communicate with each other? (Currently: No, but could be future enhancement)
-
+1. Should the filter preference persist per-folder or be global? (Decision: Global for simplicity)
+2. What happens when user switches folders with filter enabled? (Should reset filter or maintain? Decision: Reset to false for simplicity)
+3. Should there be a visual indicator (badge/count) showing how many images are starred? (Not in initial implementation, can be added later)
+4. Should starred state be exportable/importable? (Not in initial implementation, can be added later)

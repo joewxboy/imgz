@@ -16,6 +16,21 @@ struct ControlPanelView: View {
             
             Spacer()
             
+            // Star button (always visible to show status, but only functional when paused)
+            Button(action: {
+                if viewModel.isCurrentImageStarred {
+                    viewModel.unstarCurrentImage()
+                } else {
+                    viewModel.starCurrentImage()
+                }
+            }) {
+                Image(systemName: viewModel.isCurrentImageStarred ? "star.fill" : "star")
+                    .font(.title2)
+                    .foregroundColor(viewModel.isCurrentImageStarred ? .yellow : .primary)
+            }
+            .help(viewModel.isCurrentImageStarred ? "Unstar image (s key, only when paused)" : "Star image (s key, only when paused)")
+            .disabled(viewModel.images.isEmpty || viewModel.currentImage == nil || (viewModel.state != .paused && viewModel.state != .idle))
+            
             // Previous button
             Button(action: {
                 Task {
