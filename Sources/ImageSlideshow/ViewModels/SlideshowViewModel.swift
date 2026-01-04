@@ -30,10 +30,14 @@ public class SlideshowViewModel: ObservableObject {
     private let configurationService: ConfigurationService
     private let imageLoaderService: ImageLoaderService
     private let starringService: StarringService
+    private let exifService: EXIFService
     private var slideshowTimer: Timer?
     
     /// Original unfiltered images array (used when filtering by starred status)
     private var originalImages: [ImageItem] = []
+    
+    /// Cache for EXIF data keyed by image URL
+    private var exifCache: [URL: EXIFData] = [:]
     
     // MARK: - Initialization
     
@@ -42,6 +46,7 @@ public class SlideshowViewModel: ObservableObject {
     ///   - configurationService: Service for persisting configuration
     ///   - imageLoaderService: Service for loading images
     ///   - starringService: Service for managing starred images
+    ///   - exifService: Service for extracting EXIF metadata
     ///   - instanceId: Optional instance identifier for configuration isolation.
     ///                 If provided, a UserDefaultsConfigurationService will be created with this instance ID.
     ///                 If nil and no configurationService is provided, uses shared configuration (backward compatible).
@@ -49,6 +54,7 @@ public class SlideshowViewModel: ObservableObject {
         configurationService: ConfigurationService? = nil,
         imageLoaderService: ImageLoaderService = DefaultImageLoaderService(),
         starringService: StarringService? = nil,
+        exifService: EXIFService? = nil,
         instanceId: String? = nil
     ) {
         // Use provided configuration service, or create one with instance ID if provided
@@ -64,6 +70,13 @@ public class SlideshowViewModel: ObservableObject {
             self.starringService = starringService
         } else {
             self.starringService = UserDefaultsStarringService()
+        }
+        
+        // Use provided EXIF service or create default one
+        if let exifService = exifService {
+            self.exifService = exifService
+        } else {
+            self.exifService = ImageIOEXIFService()
         }
         
         // Load saved configuration
@@ -113,6 +126,9 @@ public class SlideshowViewModel: ObservableObject {
             // Store original images (unfiltered)
             originalImages = loadedImages
             
+            // Clear EXIF cache when folder changes
+            exifCache.removeAll()
+            
             // Apply filter if enabled
             if configuration.showOnlyStarred {
                 applyStarredFilter()
@@ -141,6 +157,10 @@ public class SlideshowViewModel: ObservableObject {
             // Load first image
             if !images.isEmpty {
                 await loadCurrentImage()
+                // Extract EXIF if toggle is enabled
+                if configuration.showEXIFHeaders {
+                    await extractEXIFForCurrentImage()
+                }
             }
         } catch {
             errorMessage = "Failed to load images from folder: \(error.localizedDescription)"
@@ -151,6 +171,7 @@ public class SlideshowViewModel: ObservableObject {
     private func loadCurrentImage() async {
         guard currentIndex >= 0 && currentIndex < images.count else {
             currentImage = nil
+            currentImageEXIFData = nil
             return
         }
         
@@ -158,10 +179,19 @@ public class SlideshowViewModel: ObservableObject {
         
         do {
             currentImage = try await imageLoaderService.loadImage(from: imageItem)
+            
+            // Extract EXIF if toggle is enabled (always check, in case toggle was enabled after image load)
+            if configuration.showEXIFHeaders {
+                await extractEXIFForCurrentImage()
+            } else {
+                // Clear EXIF data if toggle is disabled
+                currentImageEXIFData = nil
+            }
         } catch {
             // Log error with filename
             print("Error loading image \(imageItem.filename): \(error.localizedDescription)")
             errorMessage = "Failed to load image: \(imageItem.filename)"
+            currentImageEXIFData = nil
         }
     }
     
@@ -170,6 +200,13 @@ public class SlideshowViewModel: ObservableObject {
     /// Starts the slideshow playback
     func startSlideshow() {
         guard !images.isEmpty else { return }
+        
+        // Automatically turn off EXIF headers when slideshow starts playing
+        if configuration.showEXIFHeaders {
+            var newConfig = configuration
+            newConfig.showEXIFHeaders = false
+            updateConfiguration(newConfig)
+        }
         
         state = .playing
         startTimer()
@@ -253,6 +290,12 @@ public class SlideshowViewModel: ObservableObject {
             do {
                 currentImage = try await imageLoaderService.loadImage(from: imageItem)
                 errorMessage = nil
+                
+                // Extract EXIF if toggle is enabled
+                if configuration.showEXIFHeaders {
+                    await extractEXIFForCurrentImage()
+                }
+                
                 return // Successfully loaded
             } catch {
                 // Log error with filename
@@ -382,6 +425,46 @@ public class SlideshowViewModel: ObservableObject {
         updateConfiguration(newConfig)
     }
     
+    // MARK: - EXIF Management
+    
+    /// Published property for current image EXIF data
+    @Published var currentImageEXIFData: EXIFData?
+    
+    /// Extracts EXIF data for the current image
+    private func extractEXIFForCurrentImage() async {
+        guard currentIndex >= 0 && currentIndex < images.count else {
+            currentImageEXIFData = nil
+            return
+        }
+        
+        let imageItem = images[currentIndex]
+        
+        // Check cache first
+        if let cachedEXIF = exifCache[imageItem.url] {
+            currentImageEXIFData = cachedEXIF
+            return
+        }
+        
+        // Extract EXIF data
+        if let exifData = await exifService.extractEXIF(from: imageItem.url) {
+            // Cache the EXIF data
+            exifCache[imageItem.url] = exifData
+            currentImageEXIFData = exifData
+            // Explicitly trigger UI update to ensure view refreshes
+            objectWillChange.send()
+        } else {
+            // No EXIF data available
+            currentImageEXIFData = nil
+        }
+    }
+    
+    /// Toggles the EXIF headers display
+    func toggleEXIFDisplay() {
+        var newConfig = configuration
+        newConfig.showEXIFHeaders.toggle()
+        updateConfiguration(newConfig)
+    }
+    
     // MARK: - Configuration Management
     
     /// Updates the slideshow configuration
@@ -389,6 +472,8 @@ public class SlideshowViewModel: ObservableObject {
     func updateConfiguration(_ newConfig: SlideshowConfiguration) {
         let wasFiltering = configuration.showOnlyStarred
         let willFilter = newConfig.showOnlyStarred
+        let wasShowingEXIF = configuration.showEXIFHeaders
+        let willShowEXIF = newConfig.showEXIFHeaders
         
         // Save configuration
         do {
@@ -431,6 +516,25 @@ public class SlideshowViewModel: ObservableObject {
             // If slideshow is playing, restart timer with new duration
             if state == .playing {
                 startTimer()
+            }
+            
+            // If EXIF toggle changed, extract EXIF for current image if enabled
+            if wasShowingEXIF != willShowEXIF {
+                if willShowEXIF && !images.isEmpty && currentIndex >= 0 && currentIndex < images.count {
+                    // Extract EXIF for current image if it's already loaded
+                    // If image isn't loaded yet, it will be extracted in loadCurrentImage()
+                    if currentImage != nil {
+                        // Extract immediately - use Task.detached to ensure it runs
+                        Task { @MainActor in
+                            await extractEXIFForCurrentImage()
+                        }
+                    }
+                    // Note: If currentImage is nil, EXIF will be extracted when loadCurrentImage() is called
+                    // This handles both cases: toggle enabled before/after image load
+                } else {
+                    // Clear EXIF data when toggle is disabled
+                    currentImageEXIFData = nil
+                }
             }
         } catch {
             errorMessage = "Failed to save configuration: \(error.localizedDescription)"

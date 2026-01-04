@@ -8,6 +8,7 @@ struct ConfigurationView: View {
     @State private var transitionDuration: Double
     @State private var transitionEffect: TransitionEffect
     @State private var showOnlyStarred: Bool
+    @State private var showEXIFHeaders: Bool
     
     init(viewModel: SlideshowViewModel) {
         self.viewModel = viewModel
@@ -15,6 +16,7 @@ struct ConfigurationView: View {
         _transitionDuration = State(initialValue: viewModel.configuration.transitionDuration)
         _transitionEffect = State(initialValue: viewModel.configuration.transitionEffect)
         _showOnlyStarred = State(initialValue: viewModel.configuration.showOnlyStarred)
+        _showEXIFHeaders = State(initialValue: viewModel.configuration.showEXIFHeaders)
     }
     
     var body: some View {
@@ -69,10 +71,24 @@ struct ConfigurationView: View {
                     }
             }
             
+            // Show EXIF Headers Toggle
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Show EXIF headers", isOn: $showEXIFHeaders)
+                    .font(.subheadline)
+                    .help("Display EXIF metadata overlay (only when paused)")
+                    .onChange(of: showEXIFHeaders) { _ in
+                        applyConfiguration()
+                    }
+            }
+            
             Spacer()
         }
         .padding()
         .frame(minWidth: 250)
+        .onChange(of: viewModel.configuration.showEXIFHeaders) { newValue in
+            // Sync local state when viewModel configuration changes (e.g., via keyboard shortcut)
+            showEXIFHeaders = newValue
+        }
     }
     
     /// Applies the current configuration settings to the view model
@@ -81,7 +97,8 @@ struct ConfigurationView: View {
             transitionDuration: transitionDuration,
             transitionEffect: transitionEffect,
             lastSelectedFolderPath: viewModel.configuration.lastSelectedFolderPath,
-            showOnlyStarred: showOnlyStarred
+            showOnlyStarred: showOnlyStarred,
+            showEXIFHeaders: showEXIFHeaders
         )
         viewModel.updateConfiguration(newConfig)
     }
