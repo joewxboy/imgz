@@ -12,3 +12,5 @@ DerivedData/
 *.dmg
 *.pkg
 *.zip
+.kiro
+.kiro/**
