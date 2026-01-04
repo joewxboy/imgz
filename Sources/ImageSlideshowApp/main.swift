@@ -23,6 +23,7 @@ struct ImageSlideshowApp: App {
             MainView(viewModel: SlideshowViewModel(
                 configurationService: nil,
                 imageLoaderService: DefaultImageLoaderService(),
+                exifService: ImageIOEXIFService(),
                 instanceId: appDelegate.instanceId
             ))
         }

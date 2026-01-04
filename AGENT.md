@@ -11,13 +11,14 @@
 All implementation tasks (Tasks 1-11) have been completed:
 - ✅ Project structure and setup
 - ✅ Core data models
-- ✅ Service layer (ConfigurationService, ImageLoaderService, StarringService)
+- ✅ Service layer (ConfigurationService, ImageLoaderService, StarringService, EXIFService)
 - ✅ ViewModel implementation
 - ✅ SwiftUI views (MainView, SlideshowDisplayView, ControlPanelView, ConfigurationView)
 - ✅ Comprehensive test coverage (unit tests + property-based tests)
 - ✅ Distribution scripts (app bundle and DMG creation)
 - ✅ **Multiple instance support**: Each instance has isolated configuration and can run independently
 - ✅ **Photo starring feature**: Star/unstar photos, filter by starred status, keyboard shortcuts
+- ✅ **EXIF headers feature**: Display EXIF metadata overlay, toggle via sidebar or "e" key, automatic dismissal when playing
 
 ### Build Status
 
@@ -55,7 +56,8 @@ ImageSlideshow/
 │   │   └── Services/
 │   │       ├── ImageLoaderService.swift
 │   │       ├── ConfigurationService.swift
-│   │       └── StarringService.swift
+│   │       ├── StarringService.swift
+│   │       └── EXIFService.swift
 │   └── ImageSlideshowApp/       # Executable target
 │       └── main.swift
 ├── Tests/
@@ -66,6 +68,8 @@ ImageSlideshow/
 │       │   ├── ControlPanelViewTests.swift
 │       │   ├── ImageLoaderServiceTests.swift
 │       │   ├── SlideshowViewModelTests.swift
+│       │   ├── StarringServiceTests.swift
+│       │   └── EXIFServiceTests.swift
 │       │   └── StarringServiceTests.swift
 │       └── PropertyTests/
 │           ├── ConfigurationPropertyTests.swift
@@ -114,12 +118,21 @@ The project uses a dual-target structure:
    - Filter toggle to show only starred photos
    - Starred state persists across app restarts
 
-5. **Image Display**
+5. **EXIF Metadata Display** 📷
+   - View EXIF headers for images (camera info, exposure settings, GPS, etc.)
+   - Toggle in sidebar or press "e" key to show/hide EXIF overlay
+   - Overlay only appears when slideshow is paused or idle
+   - Automatically dismissed when slideshow is playing
+   - EXIF toggle automatically turns off when slideshow starts playing
+   - Displays camera make/model, ISO, aperture, shutter speed, date taken, focal length, GPS coordinates, and image dimensions
+   - EXIF data is cached for performance
+
+6. **Image Display**
    - Aspect ratio preservation
    - Aspect-fit scaling
    - Full-screen display
 
-6. **Error Handling**
+7. **Error Handling**
    - Graceful handling of corrupted images
    - Error logging with filename information
    - Automatic recovery and continuation
@@ -157,6 +170,7 @@ The project uses a dual-target structure:
   - ImageLoaderServiceTests
   - SlideshowViewModelTests
   - StarringServiceTests
+  - EXIFServiceTests
 
 - **Property-Based Tests**: Comprehensive property validation
   - ConfigurationPropertyTests (Property 8)
@@ -305,9 +319,9 @@ The project is complete, but potential enhancements could include:
 4. **Additional Features**: 
    - More transition effects
    - Playlist support
-   - Image metadata display
    - Export functionality
    - Starred photos export/import
+   - EXIF data export
 
 ## Key Takeaways for Agents
 
@@ -318,6 +332,8 @@ The project is complete, but potential enhancements could include:
 5. **Distribution Ready**: Scripts available for creating distributable packages
 6. **Documentation Complete**: All major aspects are documented
 7. **Multiple Instance Support**: Each instance has isolated configuration, allowing multiple slideshows to run simultaneously
+8. **Photo Starring**: Complete starring feature with UI controls, keyboard shortcuts, filtering, and per-folder persistence
+9. **EXIF Metadata Display**: EXIF headers overlay with toggle control, automatic dismissal when playing, and keyboard shortcut support
 8. **Photo Starring**: Complete starring feature with UI controls, keyboard shortcuts, filtering, and per-folder persistence
 
 ## Important Notes

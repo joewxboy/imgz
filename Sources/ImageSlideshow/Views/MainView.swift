@@ -131,15 +131,21 @@ public struct MainView: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak viewModel] event in
             guard let viewModel = viewModel else { return event }
             
-            // Only handle when paused/idle and images are loaded
+            // Get the key character, handling both regular and special keys
+            let keyChar = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            
+            // Handle 'e' key to toggle EXIF display (works in any state)
+            if keyChar == "e" {
+                viewModel.toggleEXIFDisplay()
+                return nil // Consume the event
+            }
+            
+            // Only handle starring shortcuts when paused/idle and images are loaded
             guard (viewModel.state == .paused || viewModel.state == .idle),
                   !viewModel.images.isEmpty,
                   viewModel.currentImage != nil else {
                 return event
             }
-            
-            // Get the key character, handling both regular and special keys
-            let keyChar = event.charactersIgnoringModifiers?.lowercased() ?? ""
             
             // Handle 's' key to star/unstar
             if keyChar == "s" {

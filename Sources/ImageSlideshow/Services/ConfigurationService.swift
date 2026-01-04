@@ -23,6 +23,7 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         static let transitionEffect = "transitionEffect"
         static let lastFolderPath = "lastFolderPath"
         static let showOnlyStarred = "showOnlyStarred"
+        static let showEXIFHeaders = "showEXIFHeaders"
     }
     
     // Default configuration values
@@ -58,6 +59,7 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         userDefaults.set(config.transitionEffect.rawValue, forKey: makeKey(BaseKeys.transitionEffect))
         userDefaults.set(config.lastSelectedFolderPath, forKey: makeKey(BaseKeys.lastFolderPath))
         userDefaults.set(config.showOnlyStarred, forKey: makeKey(BaseKeys.showOnlyStarred))
+        userDefaults.set(config.showEXIFHeaders, forKey: makeKey(BaseKeys.showEXIFHeaders))
     }
     
     public func loadConfiguration() -> SlideshowConfiguration {
@@ -86,11 +88,15 @@ public class UserDefaultsConfigurationService: ConfigurationService {
         // Load showOnlyStarred (defaults to false if not found)
         let showOnlyStarred = userDefaults.bool(forKey: makeKey(BaseKeys.showOnlyStarred))
         
+        // Load showEXIFHeaders (defaults to false if not found)
+        let showEXIFHeaders = userDefaults.bool(forKey: makeKey(BaseKeys.showEXIFHeaders))
+        
         return SlideshowConfiguration(
             transitionDuration: transitionDuration,
             transitionEffect: transitionEffect,
             lastSelectedFolderPath: lastFolderPath,
-            showOnlyStarred: showOnlyStarred
+            showOnlyStarred: showOnlyStarred,
+            showEXIFHeaders: showEXIFHeaders
         )
     }
 }
